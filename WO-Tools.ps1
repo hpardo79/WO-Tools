@@ -6,7 +6,7 @@ Add-Type -AssemblyName System.Drawing
 function Main {
     # Crear formulario principal
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "Herramienta para Mantenimiento de Sistemas Windows 10/11"
+    $form.Text = "Script PowerShell para Mantenimiento de Sistemas Windows 10/11"
     $form.Size = New-Object System.Drawing.Size(1000, 780)
     $form.StartPosition = "CenterScreen"
     $form.BackColor = [System.Drawing.Color]::FromArgb(240, 240, 240)
