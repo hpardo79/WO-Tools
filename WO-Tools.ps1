@@ -32,8 +32,87 @@ function Main {
     $tab4.Text = "Registro de Eventos"
 
     # Funcion para obtener informacion del sistema en formato HTML
+    function Get-OfficeInfo {
+        $officeInfo = "`n"
+        
+        # Buscar Office
+#         $officeRegPaths= @(
+#            "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+#            "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration\64",
+#            "HKLM:\SOFTWARE\Microsoft\Office\16.0\Common\InstallRoot",
+#            "HKLM:\SOFTWARE\Microsoft\Office\15.0\Common\InstallRoot",
+#            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Office\ClickToRun\Configuration",
+#            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+#        )
+    
+        $officeFound = $false
+        
+        # Buscar en Office Click-to-Run
+        try {
+            $c2rVersion = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration" -ErrorAction SilentlyContinue
+            if ($c2rVersion.VersionToReport) {
+                $officeInfo += "- Microsoft 365 (Version: $($c2rVersion.VersionToReport))`n"
+                $officeFound = $true
+            }
+        } catch {}
+    
+        # Buscar versiones instaladas por MSI
+        $officeKeys = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+            Where-Object { $_.GetValue("DisplayName") -like "*Microsoft Office*" -or $_.GetValue("DisplayName") -like "*Microsoft 365*" }
+    
+        foreach ($key in $officeKeys) {
+            $name = $key.GetValue("DisplayName")
+            $version = $key.GetValue("DisplayVersion")
+            if ($name -and $version) {
+                $officeInfo += "- $name (Version: $version)`n"
+                $officeFound = $true
+            }
+        }
+    
+        # Detectar Office 32-bit en sistemas 64-bit
+        $officeKeys32 = Get-ChildItem "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+            Where-Object { $_.GetValue("DisplayName") -like "*Microsoft Office*" -or $_.GetValue("DisplayName") -like "*Microsoft 365*" }
+    
+        foreach ($key in $officeKeys32) {
+            $name = $key.GetValue("DisplayName")
+            $version = $key.GetValue("DisplayVersion")
+            if ($name -and $version) {
+                $officeInfo += "- $name (32-bit) (Version: $version)`n"
+                $officeFound = $true
+            }
+        }
+    
+        # Verificar la ruta de instalación
+        $officePaths = @(
+            "${env:ProgramFiles}\Microsoft Office",
+            "${env:ProgramFiles(x86)}\Microsoft Office"
+        )
+    
+        foreach ($path in $officePaths) {
+            if (Test-Path $path) {
+                $officeExes = Get-ChildItem -Path $path -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -in @("WINWORD.EXE", "EXCEL.EXE", "POWERPNT.EXE") }
+                
+                foreach ($exe in $officeExes) {
+                    $fileVersion = $exe.VersionInfo.FileVersion
+                    if ($fileVersion -and -not $officeFound) {
+                        $officeInfo += "- Microsoft Office (Ruta: $($exe.Directory.Parent.Name)) (Version: $fileVersion)`n"
+                        $officeFound = $true
+                        break
+                    }
+                }
+            }
+        }
+    
+        if (-not $officeFound) {
+            $officeInfo += "- No se encontró Microsoft Office instalado`n"
+        }
+    
+        return $officeInfo
+    }
+
     function Get-SystemInfoHTML {
-        # Obtener toda la información del sistema de una vez para optimizar
+        # Información del sistema
         $computerInfo = Get-ComputerInfo -Property @(
             "WindowsVersion",
             "OsName",
@@ -42,13 +121,13 @@ function Main {
             "CsTotalPhysicalMemory"
         )
         
-        # Optimizar la obtención de IP
+        # Obtención de IP
         $ipAddress = (Get-NetIPAddress | Where-Object {
             $_.AddressFamily -eq "IPv4" -and 
             $_.PrefixOrigin -eq "Dhcp"
         } | Select-Object -First 1).IPAddress
 
-        # Mejorar el manejo de errores para el antivirus
+        # Antivirus
         try {
             $antivirusProducts = Get-WmiObject -Namespace "root\SecurityCenter2" -Class AntiVirusProduct -ErrorAction Stop
             $antivirusInfo = ($antivirusProducts | ForEach-Object {
@@ -66,7 +145,7 @@ function Main {
             $txtLog.AppendText("Error al obtener información del antivirus: $($_.Exception.Message)`r`n")
         }
 
-        # Mejorar el manejo del firewall
+        # Firewall
         try {
             $firewall = Get-NetFirewallProfile -ErrorAction Stop
             $estados = @{
@@ -92,7 +171,7 @@ Publico: $($estados.Public)
             $txtLog.AppendText("Error al obtener información del firewall: $($_.Exception.Message)`r`n")
         }
 
-        # Optimizar la obtención de información de discos
+        # Información de discos
         $disks = Get-WmiObject Win32_LogicalDisk -Filter "DriveType = 3" |
             Select-Object DeviceID, @{
                 Name="FreeSpace";
@@ -101,6 +180,9 @@ Publico: $($estados.Public)
                 Name="TotalSize";
                 Expression={[math]::Round($_.Size/1GB, 2)}
             }
+        
+        # Información de Office
+        $officeInfo = Get-OfficeInfo
 
         $systemInfo = @"
 <html>
@@ -199,7 +281,7 @@ Publico: $($estados.Public)
 <div class="data">
     <div class="item">
         <span class="label">Version Windows:</span>
-        <span class="value">$($computerInfo.OsName) $($computerInfo.OsVersion)</span>
+        <span class="value">$($computerInfo.OSName) $($computerInfo.OsVersion))</span>
     </div>
 </div>
 
@@ -212,6 +294,14 @@ Publico: $($estados.Public)
     <div class="item">
         <span class="label">Firewall:</span>
         <span class="value">$firewallStatus</span>
+    </div>
+</div>
+
+<div class="section">MICROSOFT OFFICE</div>
+<div class="data">
+    <div class="item">
+        <span class="label">Paquetes Instalados:</span>
+        <span class="value">$($officeInfo)</span>
     </div>
 </div>
 
@@ -228,8 +318,7 @@ Publico: $($estados.Public)
 </div>
 
 <div class="section">ALMACENAMIENTO</div>
-"@
-        
+"@ 
         foreach ($disk in $disks) {
             $freeSpace = $disk.FreeSpace
             $totalSpace = $disk.TotalSize
@@ -525,3 +614,4 @@ Publico: $($estados.Public)
 
 # Ejecutar la funcion principal
 Main
+
